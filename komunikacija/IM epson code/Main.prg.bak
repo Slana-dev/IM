@@ -1,0 +1,124 @@
+Function main
+    ' Deklaracija spremenljivk (usklajena z vašimi)
+    Real dx
+    Real dy
+    Real dz
+    Real rx
+    Real ry
+    Real rz
+    
+    Int32 type
+    String pipe$
+    String done$
+    String line$
+    String command$(7)
+    
+    pipe$ = "C:\Users\ambro\Desktop\IM\IM\pipe.txt"
+    done$ = "C:\Users\ambro\Desktop\IM\IM\done.txt"
+    
+    ' Zacetne nastavitve robota
+    Motor On
+    Power High
+    Speed 50
+    Accel 10, 10
+    SpeedS 500
+    AccelS 300, 300
+    Go P0 +Z(400)
+    
+    ' ======================================================================
+    ' ZUNANJA ZANKA: Skrbi, da se program ne konca in caka na nove zagonte Pythona
+    ' ======================================================================
+    Do
+        ' Pred zacetkom nove serije pocistimo stare datoteke, ce obstajajo
+        If FileExists(pipe$) Then
+			Del pipe$
+		EndIf
+        If FileExists(done$) Then
+			Del done$
+		EndIf
+        
+        ' Resetiramo zastavico na "0" - robot sporoca, da je pripravljen na nov zagon
+        WOpen done$ As #31
+        Write #31, "0"
+        Close #31
+        
+        Print "--- Krmilnik pripravljen. Cakam na zacetek sekvence iz Pythona... ---"
+        
+        ' ------------------------------------------------------------------
+        ' NOTRANJA ZANKA: Obdelava posameznih tock znotraj ene serije
+        ' ------------------------------------------------------------------
+        Do
+            ' A) Preverimo, ce je Python v done.txt poslal kodo za KONEC (3) ali NAPAKO (2)
+            If FileExists(done$) Then
+                ROpen done$ As #30
+                Line Input #30, line$
+                Close #30
+                
+                ' Ce je koda 2 (Premik izdelka na kameri)
+                If line$ = "2" Then
+                    Print "[Robot] Zaznan premik izdelka -> PREKINJAM trenutno serijo!"
+                    Exit Do ' Skocimo ven iz notranje zanke nazaj v zunanjo cakalnico
+                EndIf
+                
+                ' Ce je koda 3 (Python je predelal vse tocke iz points.txt)
+                If line$ = "3" Then
+                    Print "[Robot] Vse tocke uspešno obdelane (Koda 3). Cistim okolje..."
+                    If FileExists(done$) Then
+						Del done$
+					EndIf ' Izbrišemo done.txt, da smo cisti za naslednjic
+                    Exit Do ' Skocimo ven iz notranje zanke in cakamo na naslednjo serijo
+                EndIf
+            EndIf
+            
+            ' B) Cakamo na novo tocko v pipe.txt
+            If FileExists(pipe$) Then
+                ROpen pipe$ As #30
+                Line Input #30, line$
+                Close #30
+                
+                ' KLJUCNO: Takoj izbrišemo pipe.txt, da vemo, kdaj bo prišla naslednja NOVA tocka
+                Del pipe$
+                
+                ' Razporedimo prejete podatke
+                ParseStr line$, command$(), " "
+                type = Val(command$(0))
+                dx = Val(command$(1))
+                dy = Val(command$(2))
+                dz = Val(command$(3))
+                rx = Val(command$(4))
+                ry = Val(command$(5))
+                rz = Val(command$(6))
+                
+                Print "Prejel tocko. Izvajam premik..."
+                Move XY(dx, dy, dz, rx, ry, rz)
+                Wait 0.1 ' Stabilizacija
+                
+                ' Sporocimo Pythonu, da smo na cilju (Koda 1)
+                WOpen done$ As #31
+                Write #31, "1"
+                Close #31
+                
+                ' C) Handshake zanka: Cakamo, da Python prevzame tocko (izbriše done.txt) ali pošlje 2 ali 3
+                Do
+                    If Not FileExists(done$) Then
+                        Exit Do ' Python je izbrisal done.txt, pripravljeni smo na naslednjo tocko
+                    EndIf
+                    
+                    ' Ce med našim cakanjem Python prepiše done.txt v 2 ali 3, takoj izstopimo iz cakanja
+                    ROpen done$ As #30
+                    Line Input #30, line$
+                    Close #30
+                    If line$ = "2" Or line$ = "3" Then
+                        Exit Do
+                    EndIf
+                    Wait 0.05
+                Loop
+            EndIf
+            
+            Wait 0.05 ' Razbremenitev krmilnika znotraj notranje zanke
+        Loop ' Konec notranje zanke (Loop za tocke)
+        
+        Wait 1.0 ' Kratek premor pred ponovnim zagonom zunanje zanke
+    Loop ' Konec zunanje zanke (Glavni program)
+
+Fend
