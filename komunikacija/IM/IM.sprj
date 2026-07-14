@@ -1,4 +1,4 @@
-ENVT0100,LM:2026/07/12 09:37:18:754,DS:0000007196,CS:14374,MA:6C-24-08-02-B1-64,EI:           
+ENVT0100,LM:2026/07/14 18:34:06:535,DS:0000007208,CS:03865,MA:6C-24-08-02-B1-64,EI:           
 SystemProperties {
 	sRCVersion="8.0.0"
 	sRCRevision=""
@@ -8,10 +8,10 @@ SystemProperties {
 	bClearControllerProject=False
 	bClearGlobalPreserves=False
 	sGUID="f25e0067-6939-40b7-aec9-ea45a279431d"
-	sPath="C:\\Users\\ambro\\Desktop\\IM\\IM\\IM"
+	sPath="C:\\Users\\ambro\\Desktop\\IM\\IM\\komunikacija\\IM"
 	sCreated="6/18/2026 10:18:47 AM"
-	sLastModified="7/12/2026 11:37:18 AM"
-	sLastSyncDate="7/12/2026 11:37:18 AM"
+	sLastModified="7/14/2026 8:31:47 PM"
+	sLastSyncDate="7/14/2026 8:31:47 PM"
 }
 UserProperties {
 	sVersion=""
@@ -35,7 +35,7 @@ ProgramFile1 {
 	sName="Main.prg"
 	bCompiled=True
 	bStoreInController=True
-	sTimeSavedInController="7/12/2026 9:37:15 AM"
+	sTimeSavedInController="7/14/2026 6:30:03 PM"
 }
 nIncludeFileCount=0
 nPointFileCount=1

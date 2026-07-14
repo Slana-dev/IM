@@ -13,8 +13,8 @@ Function main
     String line$
     String command$(7)
     
-    pipe$ = "C:\Users\ambro\Desktop\IM\IM\pipe.txt"
-    done$ = "C:\Users\ambro\Desktop\IM\IM\done.txt"
+    pipe$ = "C:\Users\ambro\Desktop\IM\IM\komunikacija\pipe.txt"
+    done$ = "C:\Users\ambro\Desktop\IM\IM\komunikacija\done.txt"
     
     ' Zacetne nastavitve robota
     Motor On
@@ -23,7 +23,7 @@ Function main
     Accel 10, 10
     SpeedS 500
     AccelS 300, 300
-    
+    Go P1 +Z(10)
     
     ' ======================================================================
     ' ZUNANJA ZANKA: Skrbi, da se program ne konca in caka na nove zagonte Pythona
@@ -41,7 +41,7 @@ Function main
         WOpen done$ As #31
         Write #31, "0"
         Close #31
-        Go P0 +Z(400)
+        
         Print "--- Krmilnik pripravljen. Cakam na zacetek sekvence iz Pythona... ---"
         
         ' ------------------------------------------------------------------

@@ -23,7 +23,7 @@ Function main
     Accel 10, 10
     SpeedS 500
     AccelS 300, 300
-    Go P0 +Z(400)
+    Go P1 +Z(10)
     
     ' ======================================================================
     ' ZUNANJA ZANKA: Skrbi, da se program ne konca in caka na nove zagonte Pythona
