@@ -1,4 +1,4 @@
-ENVT0100,LM:2026/07/16 15:17:04:494,DS:0000007218,CS:10813,MA:6C-24-08-02-B1-64,EI:           
+ENVT0100,LM:2026/07/18 15:46:41:319,DS:0000007218,CS:12086,MA:6C-24-08-02-B1-64,EI:           
 SystemProperties {
 	sRCVersion="8.0.0"
 	sRCRevision=""
@@ -10,7 +10,7 @@ SystemProperties {
 	sGUID="ad7bdc9a-c70a-47af-9410-2406decaecc6"
 	sPath="C:\\Users\\ambro\\Desktop\\IM\\IM\\komunikacija\\IMtcp"
 	sCreated="7/15/2026 3:01:27 PM"
-	sLastModified="7/16/2026 5:13:28 PM"
+	sLastModified="7/18/2026 5:46:28 PM"
 	sLastSyncDate="7/16/2026 3:51:14 PM"
 }
 UserProperties {

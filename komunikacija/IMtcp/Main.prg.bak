@@ -15,29 +15,25 @@ Function main
     SpeedS 500
     AccelS 300, 300
     
-    ' Dvignemo robota v varno zacetno tocko
-    Go P0 +Z(10)
+    Go P0 +Z(30)
     
    
     Do
         Print "--- Cakam na povezavo s Pythonom na portu 5000... ---"
         CloseNet #201
         Wait 0.5
-        
-        ' 1. Odpremo omrežno povezavo in pocakamo na Python
+      
         OpenNet #201 As Client
         WaitNet #201
         
         Print "--- Povezava vzpostavljena! Zacenjam sekvenco... ---"
         
         Do
-            ' Preverimo, ce je v mrežnem medpomnilniku (bufferju) kakšen podatek
+            
             If ChkNet(201) > 0 Then
                 
-                ' Preberemo celotno vrstico, ki jo je poslal Python (zacetni paket)
                 Input #201, line$
-                
-                ' Razdelimo prejeti niz glede na presledke
+               
                 ParseStr line$, command$(), " "
                 type = Val(command$(0)) ' Prvi parameter je vedno KODA UKAZA
                 
@@ -47,7 +43,11 @@ Function main
                     Exit Do ' Izstopimo iz notranje zanke
                 EndIf
                 
-                ' --- KODA 1: Prejet nov koordinatni sistem za zacetek cikla ---
+                ' --- KODA 3: nastavitev Tool Center Pointa
+                If type = 3 Then
+                	
+                EndIf
+                 ' --- KODA 1: Prejet nov koordinatni sistem za zacetek cikla ---
                 If type = 1 Then
                     
                     dx = Val(command$(2))

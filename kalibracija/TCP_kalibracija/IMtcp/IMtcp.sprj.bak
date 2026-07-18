@@ -1,4 +1,4 @@
-ENVT0100,LM:2026/07/16 14:50:12:776,DS:0000007234,CS:07424,MA:6C-24-08-02-B1-64,EI:           
+ENVT0100,LM:2026/07/18 16:08:11:262,DS:0000007234,CS:04110,MA:6C-24-08-02-B1-64,EI:           
 SystemProperties {
 	sRCVersion="8.0.0"
 	sRCRevision=""
@@ -10,8 +10,8 @@ SystemProperties {
 	sGUID="ad7bdc9a-c70a-47af-9410-2406decaecc6"
 	sPath="C:\\Users\\ambro\\Desktop\\IM\\IM\\kalibracija\\TCP_kalibracija\\IMtcp"
 	sCreated="7/15/2026 3:01:27 PM"
-	sLastModified="7/16/2026 4:50:12 PM"
-	sLastSyncDate="7/15/2026 3:38:18 PM"
+	sLastModified="7/18/2026 6:08:11 PM"
+	sLastSyncDate="7/18/2026 6:08:11 PM"
 }
 UserProperties {
 	sVersion=""
@@ -35,7 +35,7 @@ ProgramFile1 {
 	sName="Main.prg"
 	bCompiled=False
 	bStoreInController=True
-	sTimeSavedInController="7/15/2026 1:38:14 PM"
+	sTimeSavedInController="7/18/2026 3:57:44 PM"
 }
 nIncludeFileCount=0
 nPointFileCount=1

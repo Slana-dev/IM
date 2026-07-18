@@ -43,7 +43,8 @@ Function main
                     Exit Do ' Izstopimo iz notranje zanke
                 EndIf
                 
-                ' --- KODA 1: Prejet nov koordinatni sistem za zacetek cikla ---
+               
+                 ' --- KODA 1: Prejet nov koordinatni sistem za zacetek cikla ---
                 If type = 1 Then
                     
                     dx = Val(command$(2))

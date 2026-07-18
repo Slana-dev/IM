@@ -103,7 +103,7 @@ def moveRobot(transform_matrix, product_type):
                     return
                 
                 if odgovor == "1":
-                    print("[Robot] Robot javlja: Celotna pot P0-P4 je uspešno prevožena!")
+                    print("[Robot] Robot javlja: Celotna pot P0-Pi je uspešno prevožena!")
                     pot_zakljucena = True
                     
             except socket.timeout:
@@ -176,7 +176,7 @@ def checkMovement():
 def main():
     global movementError
     
-    # Testna kalibracijska matrika (v realnosti bo to tvoja izračunana matrika)
+    # Testna kalibracijska matrika (v realnosti bo to izračunana matrika)
     TRAN_MATRIX = np.array([
         [1.0, 0, 0.0, 50.0],
         [0.0, 1.0, 0.0, 50.0],
@@ -213,8 +213,10 @@ def main():
                 print("\n[Main] Cikel zaključen. Pripravljen na nov izdelek (Pritisni ENTER)...")
                 time.sleep(0.5)
             
-            time.sleep(0.05)
             
+            elif keyboard.is_pressed('delete'):
+                
+            time.sleep(0.05)
     except KeyboardInterrupt:
         print("\n\n[Main] Zaznan Ctrl + C! Sprožam varen izhod iz vseh niti...")
         stop_event.set()
