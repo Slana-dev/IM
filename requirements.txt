@@ -1,12 +1,30 @@
-# --- Strojni vid, 3D oblaki točk in Hand-Eye kalibracija ---
-opencv-contrib-python>=4.10.0
-open3d>=0.18.0
-numpy>=1.26.0
-scipy>=1.13.0
+# ======================================================================
+# IM – skupne knjižnice za projekt (Python 3.11, conda okolje)
+# Namestitev:  pip install -r requirements.txt
+# Testirano z: Python 3.11.17 (numpy 2.2.6, scipy 1.16.3, opencv 4.12.0,
+#              open3d 0.19.0, pandas 2.3.3)
+# ======================================================================
 
-# --- Analitika in 3D obdelava ---
-pandas>=2.0.0
-joblib>=1.3.0
+# --- Strojni vid in kalibracija (main.py, hand_eye_kalibracija.py) ---
+# OpenCV: namesti SAMO EN paket (contrib vsebuje tudi cv2.aruco).
+# NE kombiniraj z opencv-python, ker se paketa med seboj pretepata.
+opencv-contrib-python>=4.8,<4.13
 
-# --- Krmiljenje in sistemske knjižnice ---
+# Matematika za transformacije (Epson <-> 4x4 matrika, Rotation)
+numpy>=1.26,<2.3
+scipy>=1.11,<1.17
+
+# --- 3D oblaki točk / določanje lokacije (modul dolocanje_tocne_lokacije) ---
+open3d==0.19.0
+
+# --- Podatki in zapis rezultatov (npr. .xlsx benchmark) ---
+pandas>=2.0,<3
+openpyxl>=3.1
+joblib>=1.3
+
+# --- Krmiljenje: tipka Enter za zagon cikla v main.py ---
 keyboard>=0.13.5
+
+# --- Grafika in Jupyter (TCP kalibracijski notebook) ---
+matplotlib>=3.8
+ipykernel>=6.0

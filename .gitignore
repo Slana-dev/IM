@@ -11,6 +11,7 @@ calib_data/*.json
 # Cache in sistemske datoteke
 __pycache__/
 *.pyc
-.vscode/
+*.vscode/
 .idea/
-.claude
+*.claude
+*.preprocess_cache
