@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import ast; ast.parse\\(open\\('main.py'\\).read\\(\\)\\)\")",
+      "Bash(python -c \"import open3d as o3d; print\\(o3d.__version__\\); print\\(hasattr\\(o3d.geometry, 'keypoint'\\)\\); print\\(hasattr\\(o3d.geometry.keypoint, 'compute_iss_keypoints'\\)\\)\")",
+      "Bash(python -c \"from pathlib import Path; p = Path\\('foo/bar_abc123'\\); print\\(p.with_suffix\\('.ply'\\)\\); print\\(p.with_suffix\\('.fpfh.npy'\\)\\)\")"
+    ]
+  }
+}

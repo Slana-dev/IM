@@ -1,14 +1,19 @@
-ENVT0100,LM:2026/06/18 09:19:37:859,DS:0000001655,CS:12586,MA:6C-24-08-02-B1-64,EI:           
+ENVT0100,LM:2026/09/11 09:07:36:537,DS:0000001705,CS:07768,MA:6C-24-08-02-B1-64,EI:           
 sVersion="2.0.0"
+nDisplayMode=4
+bDisplayR=False
+bDisplayS=False
+bDisplayT=False
+nNumberOfJoints=6
 nNumberOfPoints=5
 Point1 {
 	nNumber=0
 	sLabel=""
 	sDescription=""
 	nUndefined=0
-	rX=-150.183
-	rY=539.146
-	rZ=53.906
+	rX=-400
+	rY=-150
+	rZ=50
 	rU=116.944
 	rV=-14.726
 	rW=177.072
@@ -32,8 +37,8 @@ Point2 {
 	sLabel=""
 	sDescription=""
 	nUndefined=0
-	rX=-150.13
-	rY=585.417
+	rX=-400.13
+	rY=150
 	rZ=51.81
 	rU=116.012
 	rV=-18.808
@@ -58,8 +63,8 @@ Point3 {
 	sLabel=""
 	sDescription=""
 	nUndefined=0
-	rX=348.698
-	rY=582.583
+	rX=-600
+	rY=150
 	rZ=49.453
 	rU=71.326
 	rV=-25.724
@@ -84,8 +89,8 @@ Point4 {
 	sLabel=""
 	sDescription=""
 	nUndefined=0
-	rX=348.766
-	rY=534.944
+	rX=-600
+	rY=-150
 	rZ=49.792
 	rU=68.667
 	rV=-19.563
@@ -110,9 +115,9 @@ Point5 {
 	sLabel=""
 	sDescription=""
 	nUndefined=384
-	rX=-150.183
-	rY=539.146
-	rZ=53.906
+	rX=-400.183
+	rY=150
+	rZ=80
 	rU=116.944
 	rV=-14.726
 	rW=177.072

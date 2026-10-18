@@ -1,0 +1,14 @@
+PC (Računalnik v Windows) ročna dodelitev IP pod ipv4 vstaviš
+	IP naslov 192.168.0.10
+	Subnet Maska 255.255.255.0
+Epson Krmilnik setup/system configuration/controller/configuration
+	IP naslov,192.168.0.20
+	Subnet Maska 255.255.255.0
+Epson Port #201 (Client) setup/system configuration/controller/(TCP/IP)
+	Remote IP 192.168.0.10 (IP vašega PC-ja)
+	Remote Port 12345
+
+Pod setup / PC-> controller communications
+	add -> connection to real controller via ethernet in mu dodaj IP 192.168.0.20
+
+Pod controller configuration/ controller se nastavi ali ga bos kontroliral z remote io ali pc

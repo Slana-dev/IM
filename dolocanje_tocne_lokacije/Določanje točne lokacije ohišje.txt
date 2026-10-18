@@ -1,0 +1,45 @@
+Določanje točne lokacije ohišje:
+
+- na vsak housing 3x liquid seal, prvi spodi za rotor, drugi na kovino za plastiko, TRETJI NANOS MAMO NA PLASTIKI, TEGA DELAMO MI - PCBJI SO ŽE POTTANI
+
+- kamera bo na roki, NE BO STATIČNA, robot gre v neki generičnoo pozicijo in zajame housing in oceni novo pozicijo
+
+- 3d kamera naredi zajem POINT CLOUDA
+
+- pozicijo določamo z OPEN3D
+
+- testiranje pred 3D kamero: simuliramo v CAD programu,
+
+- delovanje: mamo dva point clouda, prvi source - vse površine izdelke pokrije s točkami, target cloud - dobimo s kamero, program mora ugotoviti kakšna mora bit transformacija, da se target cloud ujema s source,
+
+- RUMENO: source point cloud,
+
+- RDEČE: target cloud,
+
+- np.random: za dodaten realizem premik točk
+
+problem: v CAD programu ni motečih dejavnikov okolice (ozadje,)
+
+3 koraki algoritma:
+- groba poravnava RANSAC - približa izdelka
+- fini algoritem - iterativna, natančna poravnava, deluje samo, če je RANSAC dovolj dober
+
+- google collab - browser PYTHON, 
+- CE BOM INSTALLU DISABLI - maximum path lengt, oziroma enable long path
+- premik relativno glede na source
+
+- v koordinatnem sistemu kamere
+
+zahteve:
+- rabimo dober source point cloud - optimizacije števila točk in vidnih točk,
+	* skeniramo iz vseh strani in iz tega naredimo point cloud iz samo uporabnih toč (brez notranjih)
+- kako dobro naštimamo parametre za grobo poravnavo
+- kako dobro filtriramo točke od tal
+- da res deluje za vse različne rotacije in translacije
+
+kontrola: primerjaj za koliko si dejansko premaknil s tem koliko si
+
+
+
+
+

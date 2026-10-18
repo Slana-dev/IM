@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(cat)",
+      "Bash(python /tmp/repro.py)",
+      "Bash(python /tmp/repro2.py)",
+      "Bash(python -c ' *)",
+      "Bash(python3)"
+    ]
+  }
+}

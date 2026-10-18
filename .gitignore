@@ -1,0 +1,20 @@
+# Virtualno okolje, ima vsak svojega
+venv/
+venv_calib/
+.venv/
+
+# Začasne slike in zajeti podatki kalibracije
+calib_data/*.png
+calib_data/*.json
+!calib_data/hand_eye_result.json
+
+# Cache in sistemske datoteke
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+# Generirano ob zagonu (predpomnilnik predobdelave) in SolidWorks zaklepne datoteke
+.preprocess_cache/
+~$*
+*.STL
+*.STL

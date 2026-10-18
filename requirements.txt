@@ -1,0 +1,12 @@
+# --- Strojni vid, 3D oblaki točk in Hand-Eye kalibracija ---
+opencv-contrib-python>=4.10.0
+open3d>=0.18.0
+numpy>=1.26.0
+scipy>=1.13.0
+
+# --- Analitika in 3D obdelava ---
+pandas>=2.0.0
+joblib>=1.3.0
+
+# --- Krmiljenje in sistemske knjižnice ---
+keyboard>=0.13.5
