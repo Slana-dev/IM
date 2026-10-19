@@ -60,12 +60,20 @@ def epson_to_matrix(x, y, z, u, v, w):
     T[0:3, 3] = [x, y, z]
     return T.tolist()
 
+def get_fresh_frame(cap, flush_count=5):
+    """
+    Izprazni notranji buffer OpenCV kamere, da dobimo 100 % svežo sliko.
+    """
+    for _ in range(flush_count):
+        cap.grab()
+    return cap.read()
+
 # ======================================================================
 # KORAK A: ZAJEM PODATKOV PREKO TCP V ŽIVO
 # ======================================================================
 def capture_live_data():
     print("[Kamera] Povezovanje s kamero...")
-    cap = cv2.VideoCapture(1)  # Zamenjaj z indeksom tvoje kamere (0, 1, 2...)
+    cap = cv2.VideoCapture(1)  # Indeks vaša kamere
     
     if not cap.isOpened():
         print("[Kamera] NAPAKA: Ni mogoče odpreti kamere!")
@@ -84,58 +92,64 @@ def capture_live_data():
     print(f"[Sistem] Robot povezan z naslova: {addr}\n")
 
     json_data = []
+    tcp_buffer = ""
 
     try:
-        while True:
-            data = conn.recv(1024).decode('utf-8').strip()
-            if not data:
+        done = False
+        while not done:
+            chunk = conn.recv(1024).decode('utf-8')
+            if not chunk:
                 break
+            
+            tcp_buffer += chunk
 
-            parts = data.split()
-            if not parts:
-                continue
+            while "\n" in tcp_buffer:
+                line, tcp_buffer = tcp_buffer.split("\n", 1)
+                line = line.strip()
+                if not line:
+                    continue
 
-            cmd_type = parts[0]
+                parts = line.split()
+                cmd_type = parts[0]
 
-            # --- KODA 3: PREJETI PODATKI O KALIBRACIJSKI TOČKI ---
-            if cmd_type == "3" and len(parts) >= 8:
-                pt_idx = parts[1]
-                x = float(parts[2])
-                y = float(parts[3])
-                z = float(parts[4])
-                u = float(parts[5])
-                v = float(parts[6])
-                w = float(parts[7])
+                # --- KODA 3: PREJETI PODATKI O KALIBRACIJSKI TOČKI ---
+                if cmd_type == "3" and len(parts) >= 8:
+                    pt_idx = parts[1]
+                    x = float(parts[2])
+                    y = float(parts[3])
+                    z = float(parts[4])
+                    u = float(parts[5])
+                    v = float(parts[6])
+                    w = float(parts[7])
 
-                print(f"[Točka {pt_idx}] Robot stoji na poziciji:")
-                print(f"  X={x:.2f}, Y={y:.2f}, Z={z:.2f} | U={u:.2f}, V={v:.2f}, W={w:.2f}")
+                    print(f"[Točka {pt_idx}] Robot stoji na poziciji:")
+                    print(f"  X={x:.2f}, Y={y:.2f}, Z={z:.2f} | U={u:.2f}, V={v:.2f}, W={w:.2f}")
 
-                # Zajem slike iz kamere
-                ret, frame = cap.read()
-                if ret:
-                    img_path = os.path.abspath(os.path.join(SAVE_DIR, f"calib_frame_{pt_idx}.png"))
-                    cv2.imwrite(img_path, frame)
-                    
-                    # Prevorba v 4x4 matriko
-                    robot_matrix = epson_to_matrix(x, y, z, u, v, w)
+                    # Zajem SVEŽE slike (s praznjenjem bufferja)
+                    ret, frame = get_fresh_frame(cap, flush_count=5)
+                    if ret:
+                        img_path = os.path.abspath(os.path.join(SAVE_DIR, f"calib_frame_{pt_idx}.png"))
+                        cv2.imwrite(img_path, frame)
+                        
+                        robot_matrix = epson_to_matrix(x, y, z, u, v, w)
 
-                    json_data.append({
-                        "point_index": pt_idx,
-                        "image_path": img_path,
-                        "robot_matrix": robot_matrix
-                    })
+                        json_data.append({
+                            "point_index": pt_idx,
+                            "image_path": img_path,
+                            "robot_matrix": robot_matrix
+                        })
 
-                    # Odgovor robotu za nadaljevanje na naslednjo točko
-                    conn.sendall("OK\r\n".encode('utf-8'))
-                    print("  [Slika & Podatki] Shranjeni. Robotu poslano 'OK'.\n")
-                else:
-                    print("  [NAPAKA] Zajem slike neuspešen!")
-                    conn.sendall("ERROR\r\n".encode('utf-8'))
+                        conn.sendall("OK\r\n".encode('utf-8'))
+                        print("  [Slika & Podatki] Shranjeni. Robotu poslano 'OK'.\n")
+                    else:
+                        print("  [NAPAKA] Zajem slike neuspešen!")
+                        conn.sendall("ERROR\r\n".encode('utf-8'))
 
-            # --- KODA 99: ZAKLJUČEK ZAJEMA ---
-            elif cmd_type == "99":
-                print("[Sistem] Robot je poslal kodo 99 - Obisk točk zaključen!")
-                break
+                # --- KODA 99: ZAKLJUČEK ZAJEMA ---
+                elif cmd_type == "99":
+                    print("[Sistem] Robot je poslal kodo 99 - Obisk točk zaključen!")
+                    done = True
+                    break
 
     except Exception as e:
         print(f"[Napaka pri zajemu] {e}")
@@ -145,7 +159,6 @@ def capture_live_data():
         conn.close()
         server_socket.close()
 
-    # Shranimo JSON za izračun
     with open(JSON_FILE, 'w') as f:
         json.dump(json_data, f, indent=4)
     
@@ -153,7 +166,7 @@ def capture_live_data():
     return True
 
 # ======================================================================
-# KORAK B: IZRAČUN HAND-EYE KALIBRACIJE
+# KORAK B: IZRAČUN HAND-EYE KALIBRACIJE (POPR. USKLADITEV INDEKSOV)
 # ======================================================================
 def process_hand_eye_calibration():
     try:
@@ -163,11 +176,7 @@ def process_hand_eye_calibration():
         print(f"NAPAKA: Datoteke ni mogoče najti na poti {JSON_FILE}")
         return
 
-    all_charuco_corners = []
-    all_charuco_ids = []
-    robot_R_gripper2base = []
-    robot_t_gripper2base = []
-    valid_images = []
+    valid_views = []
     image_size = None
 
     loci("KORAK 1: Detekcija ChArUco kotov na slikah")
@@ -185,54 +194,61 @@ def process_hand_eye_calibration():
             image_size = (img.shape[1], img.shape[0])
 
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
         charuco_corners, charuco_ids, _, _ = charuco_detector.detectBoard(gray)
 
         if charuco_corners is not None and len(charuco_corners) > 3:
-            all_charuco_corners.append(charuco_corners)
-            all_charuco_ids.append(charuco_ids)
-
             R_gripper2base = robot_matrix[0:3, 0:3]
-            t_gripper2base = robot_matrix[0:3, 3].reshape(3, 1)
+            t_gripper2base = robot_matrix[0:3, 3].reshape(3, 1) / 1000.0  # mm -> m
 
-            # Pretvorba milimetrov v metre za OpenCV
-            t_gripper2base = t_gripper2base / 1000.0
-
-            robot_R_gripper2base.append(R_gripper2base)
-            robot_t_gripper2base.append(t_gripper2base)
-            valid_images.append(img_path)
+            # Podatki so zapakirani v enoten slovar za preprečitev razsinhronizacije
+            valid_views.append({
+                "img_path": img_path,
+                "corners": charuco_corners,
+                "ids": charuco_ids,
+                "R_robot": R_gripper2base,
+                "t_robot": t_gripper2base
+            })
 
             print(f"  [OK] {os.path.basename(img_path):<20} -> najdenih {len(charuco_corners)} kotov")
         else:
             print(f"  [NAPAKA] {os.path.basename(img_path):<20} -> premalo kotov, slika izločena")
 
-    loci(f"Uspešno obdelanih: {len(valid_images)} / {len(data)} slik")
+    loci(f"Uspešno obdelanih: {len(valid_views)} / {len(data)} slik")
 
-    if len(valid_images) < 3:
+    if len(valid_views) < 3:
         print("NAPAKA: Potrebujemo vsaj 3 veljavne slike za kalibracijo. Konec.")
         return
 
     loci("KORAK 2: Izračun notranjih parametrov kamere (intrinsics)")
 
+    calib_views = []
     all_object_points = []
     all_image_points = []
-    calib_charuco_corners = []
-    calib_charuco_ids = []
 
-    for corners, ids in zip(all_charuco_corners, all_charuco_ids):
-        obj_points, img_points = board.matchImagePoints(corners, ids)
+    for view in valid_views:
+        obj_points, img_points = board.matchImagePoints(view["corners"], view["ids"])
         if obj_points is None or len(obj_points) < 4:
+            print(f"  [PRESKOČENO v Koraku 2] {os.path.basename(view['img_path'])} -> premalo ujemanja točk")
             continue
-        all_object_points.append(np.array(obj_points, dtype=np.float32))
-        all_image_points.append(np.array(img_points, dtype=np.float32))
-        calib_charuco_corners.append(corners)
-        calib_charuco_ids.append(ids)
+
+        obj_pts_arr = np.array(obj_points, dtype=np.float32)
+        img_pts_arr = np.array(img_points, dtype=np.float32)
+
+        all_object_points.append(obj_pts_arr)
+        all_image_points.append(img_pts_arr)
+
+        calib_views.append({
+            "img_path": view["img_path"],
+            "obj_points": obj_pts_arr,
+            "img_points": img_pts_arr,
+            "R_robot": view["R_robot"],
+            "t_robot": view["t_robot"]
+        })
 
     if len(all_object_points) < 3:
         print("NAPAKA: Premalo pogledov z veljavnimi korespondencami točk. Konec.")
         return
 
-    # Popravek za Pylance: prehod None parametrov in dodan # type: ignore
     ret, camera_matrix, dist_coeffs, rvecs, tvecs = cv2.calibrateCamera(
         all_object_points,
         all_image_points,
@@ -250,25 +266,28 @@ def process_hand_eye_calibration():
     print(f"  Koeficienti distorzije (dist_coeffs): {dist_coeffs.flatten()}")
 
     loci("KORAK 3: Izračun pozicij table glede na kamero (target -> cam)")
+    
     cam_R_target2cam = []
     cam_t_target2cam = []
     final_R_gripper2base = []
     final_t_gripper2base = []
 
-    for i in range(len(calib_charuco_corners)):
-        obj_points, img_points = board.matchImagePoints(calib_charuco_corners[i], calib_charuco_ids[i])
-        if obj_points is None or len(obj_points) < 4:
-            continue
-
-        success, rvec, tvec = cv2.solvePnP(obj_points, img_points, camera_matrix, dist_coeffs)
+    for view in calib_views:
+        success, rvec, tvec = cv2.solvePnP(
+            view["obj_points"], 
+            view["img_points"], 
+            camera_matrix, 
+            dist_coeffs
+        )
         if success:
             R_target2cam, _ = cv2.Rodrigues(rvec)
             cam_R_target2cam.append(R_target2cam)
             cam_t_target2cam.append(tvec)
-            final_R_gripper2base.append(robot_R_gripper2base[i])
-            final_t_gripper2base.append(robot_t_gripper2base[i])
+            
+            final_R_gripper2base.append(view["R_robot"])
+            final_t_gripper2base.append(view["t_robot"])
 
-    print(f"  Uspešno izračunanih pozicij table: {len(cam_R_target2cam)} / {len(calib_charuco_corners)}")
+    print(f"  Uspešno izračunanih pozicij table: {len(cam_R_target2cam)} / {len(calib_views)}")
 
     if len(cam_R_target2cam) < 3:
         print("NAPAKA: Premalo veljavnih pozicij table za hand-eye kalibracijo. Konec.")
@@ -276,7 +295,6 @@ def process_hand_eye_calibration():
 
     loci("KORAK 4: Hand-eye kalibracija (cv2.calibrateHandEye)")
     
-    # Popravek za Pylance opozorilo: dodan # type: ignore
     R_cam2gripper, t_cam2gripper = cv2.calibrateHandEye(  # type: ignore
         final_R_gripper2base,
         final_t_gripper2base,
@@ -317,7 +335,6 @@ def process_hand_eye_calibration():
     print(f"  Odstopanje od povprečja (m): min={deviations.min():.5f}, "
           f"max={deviations.max():.5f}, povprečje={deviations.mean():.5f}")
     
-    # Shranjevanje za main.py
     result_data = {
         "camera_matrix": camera_matrix.tolist(),
         "dist_coeffs": dist_coeffs.tolist(),

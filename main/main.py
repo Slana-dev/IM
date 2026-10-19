@@ -26,7 +26,7 @@ MOVEMENT_THRESHOLD = 0.95
 MOVEMENT_INTERVAL_SECONDS = 0.5 
 
 # ======================================================================
-# MATEMATIČNE PRETVORBE (POPRAVLJENA EPSON KONVENCIJA)
+# MATEMATIČNE PRETVORBE (VSE MATRIKE V MILIMETRIH)
 # ======================================================================
 def epson_to_matrix(x, y, z, u, v, w):
     """
@@ -41,19 +41,20 @@ def epson_to_matrix(x, y, z, u, v, w):
 
 def matrix_to_epson(T):
     """
-    Pretvori 4x4 matriko v Epson koordinate (x, y, z, u, v, w).
+    Pretvori 4x4 matriko (v mm) v Epson koordinate (x, y, z, u, v, w).
+    Vrne: x, y, z (mm), u, v, w (deg).
     """
     x, y, z = T[:3, 3]
     rot = R.from_matrix(T[:3, :3])
     w, v, u = rot.as_euler('xyz', degrees=True)
     return x, y, z, u, v, w
 
-def get_object_in_base(T_robot_current, T_cam2flange, T_obj2cam):
+def get_object_in_base(T_robot_current_mm, T_cam2flange_mm, T_obj2cam_mm):
     """
-    Preračuna koordinate zaznanega objekta iz kamere v bazo robota:
+    Preračuna koordinate zaznanega objekta iz kamere v bazo robota (vse matrike v mm):
     T_obj2base = T_flange2base @ T_cam2flange @ T_obj2cam
     """
-    T_obj2base = T_robot_current @ T_cam2flange @ T_obj2cam
+    T_obj2base = T_robot_current_mm @ T_cam2flange_mm @ T_obj2cam_mm
     return T_obj2base
 
 def load_calibration_data():
@@ -68,49 +69,74 @@ def load_calibration_data():
         
         camera_matrix = np.array(data["camera_matrix"], dtype=np.float32)
         dist_coeffs = np.array(data["dist_coeffs"], dtype=np.float32)
-        hand_eye_matrix = np.array(data["hand_eye_matrix"], dtype=np.float32)
+        hand_eye_matrix = np.array(data["hand_eye_matrix"], dtype=np.float64)
         
-        print(f"[Kalibracija] Uspešno naloženi kalibracijski podatki iz {CALIB_RESULT_FILE}")
+        # --- KLJUČNI POPRAVEK ENOT: metri -> milimetri ---
+        hand_eye_matrix[:3, 3] *= 1000.0
+        
+        print(f"[Kalibracija] Uspešno naloženi podatki. Hand-Eye zamik kamere: "
+              f"X={hand_eye_matrix[0,3]:.1f}mm, Y={hand_eye_matrix[1,3]:.1f}mm, Z={hand_eye_matrix[2,3]:.1f}mm")
+        
         return camera_matrix, dist_coeffs, hand_eye_matrix
     except Exception as e:
         print(f"[Kalibracija] Napaka pri branju kalibracijske datoteke: {e}")
         return None, None, None
 
+def get_fresh_frame(cap, flush_count=5):
+    """
+    Izprazni notranji buffer kamere pred zajemom referenčne slike.
+    """
+    for _ in range(flush_count):
+        cap.grab()
+    return cap.read()
 
 def moveRobot(conn, transform_matrix, product_type, cycle_stop_event):
     """
-    Izračuna 3D odmike iz transformacijske matrike in jih pošlje Epsonu preko TCP.
+    Izračuna 3D odmike iz transformacijske matrike (v mm) in jih pošlje Epsonu preko TCP.
     """
     global movementError
     
-    dx, dy, dz, rx, ry, rz = matrix_to_epson(transform_matrix)
-    print(f"[Robot] Pošiljam odmike na robot: X={dx:.2f}, Y={dy:.2f}, Z={dz:.2f} | U={rz:.2f}, V={ry:.2f}, W={rx:.2f}")
+    # Jasno odpakiranje x, y, z (mm) ter u, v, w (deg)
+    dx, dy, dz, du, dv, dw = matrix_to_epson(transform_matrix)
+    print(f"[Robot] Pošiljam Local 1 odmike na robot: X={dx:.2f}mm, Y={dy:.2f}mm, Z={dz:.2f}mm | U={du:.2f}°, V={dv:.2f}°, W={dw:.2f}°")
     
-    ukaz = f"1 {product_type} {dx:.3f} {dy:.3f} {dz:.3f} {rx:.3f} {ry:.3f} {rz:.3f}\r\n"
+    ukaz = f"1 {product_type} {dx:.3f} {dy:.3f} {dz:.3f} {du:.3f} {dv:.3f} {dw:.3f}\r\n"
     
     try:
         conn.sendall(ukaz.encode('utf-8'))
         pot_zakljucena = False
-        conn.settimeout(0.05)  # Kratek timeout za neblokirajoče spremljanje kamere
+        conn.settimeout(0.05)
+
+        tcp_buffer = ""
 
         while not stop_event.is_set() and not pot_zakljucena:
-            # Preverjanje sprotnega premika
+            # Preverjanje sprotnega premika ali izpada kamere
             with error_lock:
                 if movementError:
-                    print("[Robot] Zaznan premik izdelka! Pošiljam ABORT signal robotu.")
+                    print("[Robot] Zaznan premik ali izpad kamere! Pošiljam ABORT signal robotu.")
                     conn.sendall("2\r\n".encode('utf-8'))
                     return 
 
             try:
-                odgovor = conn.recv(1024).decode('utf-8').strip()
-                if not odgovor:
+                chunk = conn.recv(1024).decode('utf-8')
+                if not chunk:
                     print("[Robot] Povezava je bila prekinjena s strani robota.")
                     return 
                 
-                if odgovor == "1":
-                    print("[Robot] Uspešno izveden celoten cikel nanosa!")
-                    pot_zakljucena = True
-                    return 
+                tcp_buffer += chunk
+
+                while "\n" in tcp_buffer:
+                    line, tcp_buffer = tcp_buffer.split("\n", 1)
+                    odgovor = line.strip()
+
+                    if odgovor == "1":
+                        print("[Robot] Uspešno izveden celoten cikel nanosa!")
+                        pot_zakljucena = True
+                        return
+                    elif odgovor == "2" or odgovor == "ERROR":
+                        print(f"[Robot] Robot je javil napako ali prekinitev: {odgovor}")
+                        return
+                        
             except socket.timeout:
                 pass
             except Exception as e:
@@ -128,11 +154,12 @@ def moveRobot(conn, transform_matrix, product_type, cycle_stop_event):
             pass
 
 # ======================================================================
-# NADZOR PREMIKA IZDELKA
+# NADZOR PREMIKA IZDELKA (VARNOSTNI WATCHDOG)
 # ======================================================================
 def checkMovement(cap, frame, cycle_stop_event):
     """
     Spremlja premik izdelka MED izvajanjem nanosa.
+    Če kamera izgubi sliko ali zazna premik, sproži ABORT.
     """
     global movementError, ROI_SIZE, MOVEMENT_THRESHOLD, MOVEMENT_INTERVAL_SECONDS
     
@@ -146,7 +173,13 @@ def checkMovement(cap, frame, cycle_stop_event):
     
     while not stop_event.is_set() and not cycle_stop_event.is_set():
         ret, trenutni_frame = cap.read()
-        if not ret: 
+        
+        # VARNOSTNI POPRAVEK: Izpad kamere sproži ABORT robota
+        if not ret:
+            if not cycle_stop_event.is_set():
+                print("[Kamera] NAPAKA: Izguba video signala kamere med ciklom! Sprožam ABORT...")
+                with error_lock:
+                    movementError = True
             break
         
         if time.time() - zadnji_cas >= MOVEMENT_INTERVAL_SECONDS:
@@ -166,11 +199,16 @@ def checkMovement(cap, frame, cycle_stop_event):
         cv2.rectangle(trenutni_frame, (x_start, y_start), (x_start+ROI_SIZE, y_start+ROI_SIZE), (255, 255, 255), 2)
         cv2.imshow("Spremljanje Premika", trenutni_frame)
         
-        if cv2.waitKey(1) & 0xFF == ord('q'): 
+        # Prekinitev operaterja prav tako sproži ABORT
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            if not cycle_stop_event.is_set():
+                print("[Kamera] Operater je prekinil spremljanje! Sprožam ABORT...")
+                with error_lock:
+                    movementError = True
             break
 
     cv2.destroyAllWindows()
-    print("[Kamera] Nadzor premika za ta cikel uspešno zaključen.")
+    print("[Kamera] Nadzor premika za ta cikel zaključen.")
 
 # ======================================================================
 # GLAVNI PROGRAM
@@ -178,12 +216,10 @@ def checkMovement(cap, frame, cycle_stop_event):
 def main():
     global movementError
     
-    # 1. Naložimo izračunano Hand-Eye matriko in intrinsics
-    camera_matrix, dist_coeffs, hand_eye_matrix = load_calibration_data()
-    if hand_eye_matrix is None:
+    camera_matrix, dist_coeffs, hand_eye_matrix_mm = load_calibration_data()
+    if hand_eye_matrix_mm is None:
         return
 
-    # Vzpostavitev TCP strežnika
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind((TCP_IP, TCP_PORT))
@@ -202,7 +238,7 @@ def main():
         return
 
     print("[Kamera] Povezujem kamero...")
-    cap = cv2.VideoCapture(1)  # Nastavi pravilen indeks kamere (0, 1, ...)
+    cap = cv2.VideoCapture(1)
     if not cap.isOpened():
         print("[Kamera] Napaka: Ni mogoče odpreti kamere.")
         global_conn.close()
@@ -215,12 +251,12 @@ def main():
     try: 
         while not stop_event.is_set():
             if keyboard.is_pressed('enter'):
-                print("\n[Main] Enter pritisnjen. Zajemam sliko in začenjam cikel...")
+                print("\n[Main] Enter pritisnjen. Zajemam svežo sliko in začenjam cikel...")
                 
                 while keyboard.is_pressed('enter'):
                     time.sleep(0.05)
                 
-                ret, frame = cap.read()
+                ret, frame = get_fresh_frame(cap, flush_count=5)
                 if not ret:
                     print("[Kamera] Napaka pri zajemu referenčne slike za ta cikel!")
                     continue
@@ -231,18 +267,11 @@ def main():
                 
                 cycle_stop_event = threading.Event()
                 
-                # --- TUKAJ SE USTVARI KOREKCIJSKA TRANSFORMACIJA ZA ROBOTA ---
-                # Primer: Če imamo matriko izračunanega odmika objekta (T_obj2cam), 
-                # jo pretvorimo preko Hand-Eye matrike v koordinate robota:
-                
-                # TRAN_MATRIX = hand_eye_matrix @ T_obj2cam  (primer izračuna odmika)
-                
-                # Za testiranje pošiljamo neposredno izračunane odmike:
-                TRAN_MATRIX = np.eye(4)  # Trenutno prazna matrika (brez odmika)
+                TRAN_MATRIX_MM = np.eye(4)  # Prazna matrika odmika (v mm)
 
                 time.sleep(0.2) 
                 
-                mainThread = threading.Thread(target=moveRobot, args=(global_conn, TRAN_MATRIX, product_type, cycle_stop_event))
+                mainThread = threading.Thread(target=moveRobot, args=(global_conn, TRAN_MATRIX_MM, product_type, cycle_stop_event))
                 movementThread = threading.Thread(target=checkMovement, args=(cap, frame, cycle_stop_event))
                 
                 movementThread.start()
