@@ -66,7 +66,8 @@ CAMERA_RESOLUTION_SCALE = 0.5
 # =============================================================================
 CONFIG = {
     # --- Vhodni podatki ---
-    "cad": "eHDS S Housing + CC s pottingom, fine.STL",   # ime/pot CAD datoteke (STL) dela, ki ga skeniramo
+    "cad": "d_housing_detailed.STL",   # REFERENCA: CAD (STL), na katerega poravnamo sken - poza je podana v NJEGOVEM koordinatnem sistemu
+    "scan_cad": None,   # SKEN: CAD (STL), iz katerega se simulira sken - None = isti kot "cad". Mora biti v ISTEM koordinatnem sistemu kot "cad"
     "use_real_scan": False,        # True = naloži --scan namesto simulacije iz CAD-a
     "scan": "scan.ply",             # ime/pot datoteke s pravim skenom (uporabljeno samo, če je use_real_scan=True)
     "extra_scans": [],             # dodatni zaporedni zajemi za temporalno povprečenje (samo z use_real_scan), glej load_and_merge_real_scans
@@ -85,12 +86,12 @@ CONFIG = {
     # (samo simulacija - glej modulski docstring) - to je poza, ki jo mora
     # main_trial.py sam oceniti/izračunati. translation_z je None = iz
     # izbrane kamere (negativna idealna delovna razdalja, glej CAMERA zgoraj).
-    "translation_x": 0.0,           # X pozicija dela (mm) - 0 = natanko pod kamero
-    "translation_y": 0.0,           # Y pozicija dela (mm)
+    "translation_x": 60.0,       # X pozicija dela (mm) - 0 = natanko pod kamero
+    "translation_y": 38.0,       # Y pozicija dela (mm)
     "translation_z": None,          # Z razdalja dela od kamere (mm, NEGATIVNA) - None = iz izbrane kamere
     "rotation_x_deg": 0.0,          # naklon okoli X (roll, stopinje) - testira toleranco na neravno ležečo postavitev
     "rotation_y_deg": 0.0,          # naklon okoli Y (pitch, stopinje)
-    "rotation_z_deg": 0.0,          # zasuk okoli Z (yaw, stopinje) - registracijski cevovod ga mora sam najti (yaw sweep)
+    "rotation_z_deg": 138.0,      # zasuk okoli Z (yaw, stopinje) - registracijski cevovod ga mora sam najti (yaw sweep)
 
     # --- Šum senzorja (None = iz izbrane kamere, glej CAMERA zgoraj) ---
     "depth_noise_at_1m": None,               # std (mm) šuma pri noise_reference_distance_m
@@ -119,7 +120,7 @@ CONFIG = {
     "sample_points": 200000,                    # koliko točk vzorčimo iz CAD modela
     "top_fraction": 1,                       # kolikšen delež dela (od zgoraj) dejansko "vidi" kamera
     "up_axis": 2,                                # katera os predstavlja "navzgor" (0=X, 1=Y, 2=Z)
-    "flip_up_direction": False,                 # obrne smer "navzgor", če je kamera obrnjena na drugo stran
+    "flip_up_direction": False,                 # False = kamera gleda CAD-ovo +Z stran (privzeto, preverjeno za d_housing_detailed); True = -Z stran
     "crop_edge_margin_factor": 2.0,             # izključi pas te širine (x voxel_size) tik ob meji obreza SAMO na CAD strani (glej main_trial.py --help) - 0 = izklopljeno
     "tilt_normal_top_band_fraction": 0.5,       # kolikšen delež zgornjih točk se uporabi za oceno naklona dela
     "height_percentile": 99.5,                  # percentil višine namesto najvišje točke (odpornost na osamelce)
@@ -239,148 +240,49 @@ def resolve_camera_params(camera_name: str | None, resolution_scale: float = 1.0
     return derived
 
 
-def _bool_flag(args: list[str], enabled: bool, flag: str) -> None:
-    """Doda `flag`, če je enabled True - za navadne store_true zastavice
-    (privzeto False), npr. --use_real_scan/--disable_occlusion."""
-    if enabled:
-        args.append(flag)
-
-
-def _bool_flag_default_true(args: list[str], enabled: bool, no_flag: str) -> None:
-    """Doda `no_flag`, če je enabled False - za zastavice, ki so PRIVZETO
-    vklopljene in jih je mogoče samo IZKLOPITI (npr. --no_cad_cache,
-    --no_filter_grazing_incidence). enabled=True pomeni "pusti privzeto
-    stanje", torej se ne doda nobena zastavica."""
-    if not enabled:
-        args.append(no_flag)
-
-
-def _tristate_flag(args: list[str], value: bool | None, true_flag: str, false_flag: str) -> None:
-    """Doda true_flag/false_flag glede na value, ali nič, če je value None
-    (naj main_trial.py sam odloči/auto-zazna) - npr.
-    --remove_table_background/--no_remove_table_background."""
-    if value is True:
-        args.append(true_flag)
-    elif value is False:
-        args.append(false_flag)
-
-
-def _value_flag(args: list[str], value, flag: str) -> None:
-    """Doda `flag value`, če value ni None - za navadne float/int/str
-    parametre."""
-    if value is not None:
-        args.append(flag)
-        args.append(str(value))
+# Ključi CONFIG so natanko imena argparse dest v main_trial.py (glej
+# registration_config.py) - zato je zastavica za navaden parameter kar
+# --<ključ>. Posebej so obravnavane samo zastavice brez vrednosti in
+# vrednosti, ki niso en sam skalar.
+_STORE_TRUE_FLAGS = {"use_real_scan", "disable_occlusion", "add_table_background", "self_test"}
+_BOTH_WAYS_FLAGS = {"remove_table_background", "flip_up_direction"}   # True -> --<ključ>, False -> --no_<ključ>
+_DISABLE_FLAGS = {   # privzeto vklopljeno v main_trial.py - mogoče je samo IZKLOPITI
+    "filter_grazing_incidence": "--no_filter_grazing_incidence",
+    "use_mesh_polish": "--no_mesh_polish",
+    "use_cad_cache": "--no_cad_cache",
+    "use_preprocess_cache": "--no_preprocess_cache",
+}
 
 
 def build_cli_args(config: dict) -> list[str]:
     """Sestavi main_trial.py-jev argv (brez imena skripte) iz `config` -
-    enega slovarja, ki je bodisi CONFIG samega, bodisi CONFIG z vanj
-    zlitimi kamera-izpeljanimi vrednostmi (glej __main__ spodaj)."""
+    enega slovarja, ki je bodisi CONFIG sam, bodisi CONFIG z vanj zlitimi
+    kamera-izpeljanimi vrednostmi (glej __main__ spodaj). Vrstni red
+    zastavic sledi vrstnemu redu ključev; None = zastavice ne podamo."""
     args: list[str] = []
-
-    # --- Vhodni podatki ---
-    _value_flag(args, config["cad"], "--cad")
-    _bool_flag(args, config["use_real_scan"], "--use_real_scan")
-    _value_flag(args, config["scan"], "--scan")
-    if config["extra_scans"]:
-        args.append("--extra_scans")
-        args.extend(str(p) for p in config["extra_scans"])
-
-    # --- Scenarij: okluzija in miza/ozadje ---
-    _bool_flag(args, config["disable_occlusion"], "--disable_occlusion")
-    _bool_flag(args, config["add_table_background"], "--add_table_background")
-    _value_flag(args, config["table_size_x"], "--table_size_x")
-    _value_flag(args, config["table_size_y"], "--table_size_y")
-    _value_flag(args, config["table_center_x"], "--table_center_x")
-    _value_flag(args, config["table_center_y"], "--table_center_y")
-    _tristate_flag(args, config["remove_table_background"],
-                  "--remove_table_background", "--no_remove_table_background")
-    _value_flag(args, config["table_removal_margin_mm"], "--table_removal_margin_mm")
-
-    # --- Referenčna (ground-truth) poza dela glede na fiksno kamero ---
-    _value_flag(args, config["translation_x"], "--translation_x")
-    _value_flag(args, config["translation_y"], "--translation_y")
-    _value_flag(args, config["translation_z"], "--translation_z")
-    _value_flag(args, config["rotation_x_deg"], "--rotation_x_deg")
-    _value_flag(args, config["rotation_y_deg"], "--rotation_y_deg")
-    _value_flag(args, config["rotation_z_deg"], "--rotation_z_deg")
-
-    # --- Šum senzorja ---
-    _value_flag(args, config["depth_noise_at_1m"], "--depth_noise_at_1m")
-    _value_flag(args, config["noise_distance_power"], "--noise_distance_power")
-    _value_flag(args, config["noise_reference_distance_m"], "--noise_reference_distance_m")
-    _value_flag(args, config["max_incidence_deg"], "--max_incidence_deg")
-    _value_flag(args, config["distance_bias_permille"], "--distance_bias_permille")
-    _value_flag(args, config["global_planarity_mm"], "--global_planarity_mm")
-    _value_flag(args, config["global_planarity_spatial_scale_px"], "--global_planarity_spatial_scale_px")
-    _value_flag(args, config["outlier_probability"], "--outlier_probability")
-    _value_flag(args, config["outlier_std_multiplier"], "--outlier_std_multiplier")
-    _value_flag(args, config["flying_pixel_depth_jump_mm"], "--flying_pixel_depth_jump_mm")
-    _value_flag(args, config["flying_pixel_probability"], "--flying_pixel_probability")
-    _value_flag(args, config["quantization_step_at_1m"], "--quantization_step_at_1m")
-    _value_flag(args, config["noise_spatial_correlation_px"], "--noise_spatial_correlation_px")
-
-    # --- Kamera geometrija ---
-    _value_flag(args, config["camera_fov_deg"], "--camera_fov_deg")
-    _value_flag(args, config["camera_width_px"], "--camera_width_px")
-    _value_flag(args, config["camera_height_px"], "--camera_height_px")
-
-    # --- Predobdelava / obrezovanje / ocena naklona ---
-    _value_flag(args, config["voxel_size"], "--voxel_size")
-    _value_flag(args, config["sample_points"], "--sample_points")
-    _value_flag(args, config["top_fraction"], "--top_fraction")
-    _value_flag(args, config["up_axis"], "--up_axis")
-    _bool_flag(args, config["flip_up_direction"], "--flip_up_direction")
-    _value_flag(args, config["crop_edge_margin_factor"], "--crop_edge_margin_factor")
-    _value_flag(args, config["tilt_normal_top_band_fraction"], "--tilt_normal_top_band_fraction")
-    _value_flag(args, config["height_percentile"], "--height_percentile")
-
-    # --- Filter letečih pikslov ---
-    _bool_flag_default_true(args, config["filter_grazing_incidence"], "--no_filter_grazing_incidence")
-    _value_flag(args, config["flying_pixel_filter_max_incidence_deg"], "--flying_pixel_filter_max_incidence_deg")
-    _value_flag(args, config["grazing_incidence_normal_radius_factor"], "--grazing_incidence_normal_radius_factor")
-
-    # --- Groba (yaw sweep) + ICP registracija ---
-    _value_flag(args, config["coarse_distance_factor"], "--coarse_distance_factor")
-    _value_flag(args, config["yaw_step_deg"], "--yaw_step_deg")
-    _value_flag(args, config["yaw_sweep_refine_iterations"], "--yaw_sweep_refine_iterations")
-    _value_flag(args, config["icp_distance_factor"], "--icp_distance_factor")
-    if config["icp_voxel_scales"]:
-        args.append("--icp_voxel_scales")
-        args.append(",".join(str(s) for s in config["icp_voxel_scales"]))
-    _value_flag(args, config["icp_max_iterations"], "--icp_max_iterations")
-    if config["icp_iterations_schedule"]:   # slovar {scale: iteracije} -> "scale:iteracije,scale:iteracije,..." (glej main_trial.py --help)
-        args.append("--icp_iterations_schedule")
-        args.append(",".join(f"{scale}:{iterations}"
-                             for scale, iterations in config["icp_iterations_schedule"].items()))
-    _value_flag(args, config["robust_kernel_k_factor"], "--robust_kernel_k_factor")
-    _value_flag(args, config["min_coarse_fitness_for_icp"], "--min_coarse_fitness_for_icp")
-
-    # --- Point-to-mesh polish (Phase 4.5) ---
-    _bool_flag_default_true(args, config["use_mesh_polish"], "--no_mesh_polish")
-    _value_flag(args, config["mesh_polish_max_iterations"], "--mesh_polish_max_iterations")
-    _value_flag(args, config["mesh_polish_distance_factor"], "--mesh_polish_distance_factor")
-    _value_flag(args, config["mesh_polish_trim_fraction"], "--mesh_polish_trim_fraction")
-
-    # --- Asimetrični varnostni pregled + target->source pokritost ---
-    _value_flag(args, config["asymmetric_check_top_fraction"], "--asymmetric_check_top_fraction")
-    _value_flag(args, config["asymmetric_check_residual_factor"], "--asymmetric_check_residual_factor")
-    _value_flag(args, config["target_coverage_distance_factor"], "--target_coverage_distance_factor")
-
-    # --- PASS/FAIL sprejemni pragovi ---
-    _value_flag(args, config["min_accept_fitness"], "--min_accept_fitness")
-    _value_flag(args, config["max_accept_inlier_rmse"], "--max_accept_inlier_rmse")
-    _value_flag(args, config["min_accept_asymmetric_fraction"], "--min_accept_asymmetric_fraction")
-    _value_flag(args, config["min_accept_target_coverage"], "--min_accept_target_coverage")
-
-    # --- Predpomnilniki ---
-    _bool_flag_default_true(args, config["use_cad_cache"], "--no_cad_cache")
-    _bool_flag_default_true(args, config["use_preprocess_cache"], "--no_preprocess_cache")
-
-    # --- Samo-testi ---
-    _bool_flag(args, config["self_test"], "--self_test")
-
+    for key, value in config.items():
+        if value is None:
+            continue
+        if key in _STORE_TRUE_FLAGS:
+            if value:
+                args.append(f"--{key}")
+        elif key in _DISABLE_FLAGS:
+            if not value:
+                args.append(_DISABLE_FLAGS[key])
+        elif key in _BOTH_WAYS_FLAGS:
+            args.append(f"--{key}" if value else f"--no_{key}")
+        elif key == "extra_scans":
+            if value:
+                args += ["--extra_scans", *(str(p) for p in value)]
+        elif key == "icp_voxel_scales":
+            if value:
+                args += ["--icp_voxel_scales", ",".join(str(s) for s in value)]
+        elif key == "icp_iterations_schedule":   # slovar {scale: iteracije} -> "scale:iteracije,scale:iteracije,..."
+            if value:
+                args += ["--icp_iterations_schedule",
+                         ",".join(f"{scale}:{iterations}" for scale, iterations in value.items())]
+        else:
+            args += [f"--{key}", str(value)]
     return args
 
 

@@ -30,7 +30,7 @@ EKSPERIMENTALNI NAČRT (glej konfiguracijske konstante spodaj):
       scanning_area_mm - glej compute_max_outward_distance_mm(). To je
       UMETNA (analitična, iz specifikacije izračunana), ne empirično
       zaznana meja - namenoma: add_table_background=True (glej
-      COMMON_RUN_KWARGS) je tu VKLJUČEN, torej ray casting v resnici
+      benchmark_common.BASE_CONFIG) je tu VKLJUČEN, torej ray casting v resnici
       pogosto zadene mizo tudi, ko je del že zunaj kamerinega
       dokumentiranega vidnega polja (fizično bi kamera v resnici še vedno
       nekaj videla - samo ne dela), zato dejanski ray-miss ni zanesljiv
@@ -44,10 +44,8 @@ EKSPERIMENTALNI NAČRT (glej konfiguracijske konstante spodaj):
   rotacije med teh 100 ponovitev na vsaki (kamera, distance_mm) kombinaciji
   - glej "summary" list v Excel izhodu (build_summary spodaj).
 
-PONOVNA UPORABA IZ camera_benchmark.py (uvoženo kot modul, NE podvojeno):
-  compute_cad_reference_and_radius, build_ground_truth_transform - ista
-  logika za referenčno CAD točko/pozo, ki jo main_trial.main() sam uporablja
-  za --translation_x/y/z/--rotation_z_deg.
+Skupni del z camera_benchmark.py (en zagon -> vrstica, nadaljevanje,
+statistika) je v benchmark_common.py.
 
 RESUME: kot camera_benchmark.py - obstoječi Excel se prebere, že opravljene
 (camera, distance_mm, iteration) kombinacije se preskočijo. Meja (število
@@ -65,20 +63,17 @@ varno nadaljuje s ponovnim zagonom iste skripte.
 """
 
 import sys
-import time
+from dataclasses import replace
 from datetime import datetime
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 import kamere
 import kontrolna_plosca as kp
-import main_trial as m
-import camera_benchmark as cb
+from benchmark_common import (BASE_CONFIG, BASE_PATH, RESULT_COLUMNS, cad_part_radius_mm, error_stats,
+                              load_existing_runs, run_one)
 
-BASE_PATH = Path(__file__).resolve().parent
-CAD_FILE = "eHDS S Housing + CC s pottingom, fine.STL"
 OUTPUT_FILE = BASE_PATH / "camera_translation_benchmark.xlsx"
 
 
@@ -94,35 +89,15 @@ POSITION_MARGIN_EXTRA_MM = 10.0   # dodaten varnostni rob čez CAD-ov lastni XY 
 MAX_POSITIONS_SAFETY_CAP = 80   # varovalka proti neskončni zanki (80*10mm=800mm) - nobena testirana kamera naj tega ne doseže; če se to zgodi, WARNING izpiše, da preveriš nastavitve
 SAVE_EVERY_N_RUNS = 20   # Excel prepis je O(trenutno_število_vrstic) - pri tisočih zagonih bi shranjevanje po vsakem posamičnem zagonu (kot camera_benchmark.py, ki ima ~10x manj vrstic) postalo prevladujoč strošek; namesto tega shranimo vsakih SAVE_EVERY_N_RUNS zagonov + vedno ob koncu vsake kamere/skripte
 
-TOP_FRACTION = 0.35
-UP_AXIS = 2
-FLIP_UP_DIRECTION = False
-
 CAMERAS_TO_TEST = [name for name in kamere.CAMERAS if name != "mecheye_pro_s"]   # Mech-Eye eksplicitno preskočena (uporabnikova zahteva)
 
-# Parametri, enaki za VSE zagone te skripte (glej main_trial.py --help za
-# razlago vsakega) - vse, kar je kamera-specifično (FOV, ločljivost, šum
-# ...), se doda posebej v run_single() prek kontrolna_plosca.resolve_camera_params().
-COMMON_RUN_KWARGS = dict(
-    voxel_size=1.0,
-    sample_point_count=200000,
-    add_table_background=True,        # VKLJUČENO (glej modulski docstring) - miza pod delom v ray-casting sceni, kot pri camera_benchmark.py
-    remove_table_background_flag=True,   # odstrani mizne/ozadje točke iz target-a pred registracijo, glej main_trial.py --help
-    use_cad_cache=True,           # isti CAD za vse zagone - vzorčenje se izračuna samo enkrat
-    use_preprocess_cache=False,   # vsak zagon je unikaten (nova pozicija/yaw/seed) - predpomnjenje bi samo kopičilo tisoče datotek brez koristi
-    top_fraction=TOP_FRACTION,
-    up_axis=UP_AXIS,
-    flip_up_direction=FLIP_UP_DIRECTION,
-    table_size_x=1000.0,   # fizični prior za yaw_sweep_registration IN velikost mizne mreže v ray-casting sceni - namenoma velik, da ne umetno omeji dosega pred kamerino LISTED FOV mejo (glej compute_max_outward_distance_mm)
-    table_size_y=1000.0,
-)
+# Miza je fizični prior za yaw_sweep_registration IN velikost mizne mreže v
+# ray-casting sceni - namenoma velika, da ne umetno omeji dosega pred
+# kamerino LISTED FOV mejo (glej compute_max_outward_distance_mm).
+CONFIG = replace(BASE_CONFIG, table_size_x=1000.0, table_size_y=1000.0)
 
-RUNS_COLUMNS = [
-    "camera", "distance_mm", "direction_deg", "iteration", "tx_mm", "ty_mm", "yaw_deg", "seed",
-    "status", "rot_error_deg", "trans_error_mm", "coarse_rot_error_deg", "coarse_trans_error_mm",
-    "fitness", "inlier_rmse", "asymmetric_fraction", "target_coverage",
-    "accepted", "reject_reasons", "runtime_s", "error_message",
-]
+RUNS_COLUMNS = ["camera", "distance_mm", "direction_deg", "iteration", "tx_mm", "ty_mm", "yaw_deg", "seed",
+                *RESULT_COLUMNS]
 
 
 def compute_max_outward_distance_mm(scanning_area_mm: dict, direction_deg: float, margin_mm: float) -> float:
@@ -147,45 +122,16 @@ def compute_max_outward_distance_mm(scanning_area_mm: dict, direction_deg: float
     return max(boundary_mm - margin_mm, 0.0)
 
 
-def load_existing_runs() -> tuple[list[dict], set]:
-    """Prebere obstoječi Excel (če obstaja) za podporo nadaljevanju - vrne
-    (seznam že opravljenih vrstic, množica (camera,distance_mm,iteration)
-    ključev, ki jih je treba PRESKOČITI)."""
-    if not OUTPUT_FILE.exists():
-        return [], set()
-    existing = pd.read_excel(OUTPUT_FILE, sheet_name="runs")
-    done = set()
-    for row in existing.itertuples(index=False):
-        done.add((row.camera, round(float(row.distance_mm), 3), int(row.iteration)))
-    print(f"Najdena obstoječa datoteka z {len(existing)} vrsticami - te kombinacije bodo preskočene.")
-    return existing.to_dict("records"), done
+def _run_key(row) -> tuple:
+    return (row.camera, round(float(row.distance_mm), 3), int(row.iteration))
 
 
 def build_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """Sestavi povzetek po (kamera x distance_mm) - štetje, štetje napak,
-    mean/STD/median/p95/max napak translacije/rotacije, mean pokritosti,
-    delež sprejetih. STD je tu GLAVNA metrika ("konsistentnost" = nizka
-    variabilnost med 100 ponovitvami na isti poziciji), ne le dodatek."""
-    def stats(group: pd.DataFrame) -> pd.Series:
-        ok = group[group["status"] == "ok"]
-        return pd.Series({
-            "count": len(group),
-            "error_count": int((group["status"] == "error").sum()),
-            "trans_error_mm_mean": ok["trans_error_mm"].mean(),
-            "trans_error_mm_std": ok["trans_error_mm"].std(),
-            "trans_error_mm_median": ok["trans_error_mm"].median(),
-            "trans_error_mm_p95": ok["trans_error_mm"].quantile(0.95) if len(ok) else np.nan,
-            "trans_error_mm_max": ok["trans_error_mm"].max(),
-            "rot_error_deg_mean": ok["rot_error_deg"].mean(),
-            "rot_error_deg_std": ok["rot_error_deg"].std(),
-            "rot_error_deg_median": ok["rot_error_deg"].median(),
-            "rot_error_deg_p95": ok["rot_error_deg"].quantile(0.95) if len(ok) else np.nan,
-            "rot_error_deg_max": ok["rot_error_deg"].max(),
-            "target_coverage_mean": ok["target_coverage"].mean(),
-            "accept_rate": ok["accepted"].mean() if len(ok) else np.nan,
-        })
-
-    return df.groupby(["camera", "distance_mm"], group_keys=False)[df.columns].apply(stats).reset_index()
+    """Povzetek po (kamera x distance_mm). STD je tu GLAVNA metrika
+    ("konsistentnost" = nizka variabilnost med ponovitvami na isti poziciji),
+    ne le dodatek."""
+    return df.groupby(["camera", "distance_mm"], group_keys=False)[df.columns].apply(
+        lambda group: error_stats(group, with_std=True)).reset_index()
 
 
 def save_excel(runs_rows: list[dict], config_rows: list[dict]) -> None:
@@ -210,82 +156,15 @@ def save_excel(runs_rows: list[dict], config_rows: list[dict]) -> None:
         pd.DataFrame(config_rows).to_excel(writer, sheet_name="config", index=False)
 
 
-def run_single(camera_name: str, distance_mm: float, direction_deg: float, iteration: int,
-              tx: float, ty: float, yaw_deg: float, seed: int, reference_point: np.ndarray,
-              camera_params: dict, cad_path: Path, cache_key_tag: str) -> dict:
-    """Požene EN zagon registracije in vrne eno vrstico rezultatov (slovar,
-    ustreza RUNS_COLUMNS). Nikoli ne vrže naprej - napake ujame in zabeleži
-    kot status='error', da ena neuspešna kombinacija ne prekine sweep-a (za
-    razliko od prejšnje različice te datoteke, tu status NE določa, kdaj se
-    sweep ustavi - meja je vnaprej izračunana, glej compute_max_outward_distance_mm)."""
-    row: dict = {
-        "camera": camera_name, "distance_mm": distance_mm, "direction_deg": direction_deg,
-        "iteration": iteration, "tx_mm": tx, "ty_mm": ty, "yaw_deg": yaw_deg, "seed": seed,
-    }
-
-    translation_z = camera_params["translation_z"]
-    m.SIMULATED_TRANSFORM = cb.build_ground_truth_transform(reference_point, tx, ty, translation_z, yaw_deg)
-
-    np.random.seed(seed)   # ponovljivost - takoj PRED klicem run_registration
-    start = time.time()
-    try:
-        _source, _target, coarse_result, icp_result, decision = m.run_registration(
-            cad_path=cad_path,
-            camera_fov_deg=camera_params["camera_fov_deg"],
-            camera_width_px=camera_params["camera_width_px"],
-            camera_height_px=camera_params["camera_height_px"],
-            depth_noise_at_1m=camera_params["depth_noise_at_1m"],
-            noise_reference_distance_m=camera_params["noise_reference_distance_m"],
-            distance_bias_permille=camera_params.get("distance_bias_permille", 0.0),
-            global_planarity_mm=camera_params.get("global_planarity_mm", 0.0),
-            noise_spatial_correlation_px=camera_params.get("noise_spatial_correlation_px", 1.5),
-            cache_key_tag=cache_key_tag,
-            **COMMON_RUN_KWARGS,
-        )
-        runtime_s = time.time() - start
-        icp_err = m.transformation_error(icp_result.transformation, m.SIMULATED_TRANSFORM)
-        coarse_err = m.transformation_error(coarse_result.transformation, m.SIMULATED_TRANSFORM)
-        row.update({
-            "status": "ok",
-            "rot_error_deg": icp_err["rotation_error_deg"],
-            "trans_error_mm": icp_err["translation_error"],
-            "coarse_rot_error_deg": coarse_err["rotation_error_deg"],
-            "coarse_trans_error_mm": coarse_err["translation_error"],
-            "fitness": decision["fitness"],
-            "inlier_rmse": decision["inlier_rmse"],
-            "asymmetric_fraction": decision["asymmetric_fraction"],
-            "target_coverage": decision["target_coverage_fraction"],
-            "accepted": decision["accepted"],
-            "reject_reasons": "; ".join(decision["reasons"]),
-            "runtime_s": runtime_s,
-            "error_message": "",
-        })
-    except Exception as exc:   # noqa: BLE001 - namerno ujamemo vse, glej docstring
-        runtime_s = time.time() - start
-        row.update({
-            "status": "error",
-            "rot_error_deg": np.nan, "trans_error_mm": np.nan,
-            "coarse_rot_error_deg": np.nan, "coarse_trans_error_mm": np.nan,
-            "fitness": np.nan, "inlier_rmse": np.nan, "asymmetric_fraction": np.nan,
-            "target_coverage": np.nan, "accepted": False, "reject_reasons": "",
-            "runtime_s": runtime_s, "error_message": f"{type(exc).__name__}: {exc}",
-        })
-        print(f"    NAPAKA: {type(exc).__name__}: {exc}")
-    return row
-
-
 def main(smoke_test: bool = False) -> None:
     print("=" * 70)
     print(f"camera_translation_benchmark.py {'(SMOKE TEST)' if smoke_test else '(FULL SWEEP)'}")
     print("=" * 70)
 
-    cad_path = BASE_PATH / CAD_FILE
-    reference_point, part_radius_mm = cb.compute_cad_reference_and_radius(cad_path)
+    part_radius_mm = cad_part_radius_mm(CONFIG)
     margin_mm = part_radius_mm + POSITION_MARGIN_EXTRA_MM
     print(f"CAD part XY radius (native frame): {part_radius_mm:.1f}mm, "
           f"margin used (radius + {POSITION_MARGIN_EXTRA_MM}mm): {margin_mm:.1f}mm")
-
-    m.draw_registration_result = lambda *args, **kwargs: None   # brez vizualizacijskih oken za ves sweep
 
     n_iterations = N_ITERATIONS_PER_POSITION
     max_positions_cap = MAX_POSITIONS_SAFETY_CAP
@@ -299,7 +178,7 @@ def main(smoke_test: bool = False) -> None:
     print(f"Direction: {OUTWARD_DIRECTION_DEG} deg, step: {STEP_MM}mm, "
           f"{n_iterations} iterations/position, resolution_scale={RESOLUTION_SCALE}")
 
-    existing_rows, done_set = load_existing_runs()
+    existing_rows, done_set = load_existing_runs(OUTPUT_FILE, _run_key)
     all_rows = list(existing_rows)
 
     yaw_angles = [i * (360.0 / n_iterations) for i in range(n_iterations)]   # enakomerno razporejeni čez 0-360 stopinj
@@ -333,7 +212,7 @@ def main(smoke_test: bool = False) -> None:
 
     for camera_name in cameras:
         spec = kamere.CAMERAS[camera_name]
-        camera_params = kp.resolve_camera_params(camera_name, resolution_scale=RESOLUTION_SCALE)
+        cam_config = replace(CONFIG, **kp.resolve_camera_params(camera_name, resolution_scale=RESOLUTION_SCALE))
 
         max_distance_mm = compute_max_outward_distance_mm(spec["scanning_area_mm"], OUTWARD_DIRECTION_DEG, margin_mm)
         n_positions = int(max_distance_mm // STEP_MM) + 1   # +1 za distance_mm=0 (center)
@@ -355,10 +234,13 @@ def main(smoke_test: bool = False) -> None:
                 key = (camera_name, round(distance_mm, 3), iteration)
                 if key in done_set:
                     continue
-                cache_key_tag = f"_trbench_{camera_name}_d{distance_mm:.0f}_it{iteration}_seed{seeds[iteration]}"
-                row = run_single(camera_name, distance_mm, OUTWARD_DIRECTION_DEG, iteration, tx, ty,
-                                 yaw_angles[iteration], seeds[iteration], reference_point, camera_params,
-                                 cad_path, cache_key_tag)
+                row = run_one(
+                    replace(cam_config, translation_x=tx, translation_y=ty, rotation_z_deg=yaw_angles[iteration]),
+                    {"camera": camera_name, "distance_mm": distance_mm, "direction_deg": OUTWARD_DIRECTION_DEG,
+                     "iteration": iteration, "tx_mm": tx, "ty_mm": ty, "yaw_deg": yaw_angles[iteration],
+                     "seed": seeds[iteration]},
+                    seeds[iteration],
+                    cache_key_tag=f"_trbench_{camera_name}_d{distance_mm:.0f}_it{iteration}_seed{seeds[iteration]}")
                 all_rows.append(row)
                 completed_this_session += 1
                 unsaved_since_last_write += 1
