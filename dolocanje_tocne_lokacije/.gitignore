@@ -1,0 +1,4 @@
+*.STL
+# Generirano ob zagonu (predpomnilnik predobdelave) in SolidWorks zaklepne datoteke
+.preprocess_cache/
+~$*

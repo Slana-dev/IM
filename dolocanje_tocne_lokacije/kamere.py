@@ -30,7 +30,7 @@ PHOTONEO_PHOXI_S = {
 
     # Informativno: structured light (projektor + kamera, triangulacija).
     # main_trial.py-jev 1/cos(kot vpadanja) šumovni člen
-    # (heteroscedastic_noise_std_mm) je empiričen model natanko TE vrste
+    # (scan_simulation.NoiseModel.depth_std_mm) je empiričen model natanko TE vrste
     # senzorja (triangulacijska baseline med projektorjem in kamero se
     # projicirano skrči pri nagnjeni površini) - ni pa uporabljen kot
     # ločeno stikalo za tehnologijo, torej ne vpliva na obnašanje kode,
@@ -79,7 +79,7 @@ PHOTONEO_PHOXI_S = {
     "relative_distance_accuracy_permille": 1.25,
 
     # --- Baseline med projektorjem in kamero (mm) ---
-    # Kontekst za heteroscedastic_noise_std_mm-ov 1/cos(kot vpadanja) člen
+    # Kontekst za NoiseModel.depth_std_mm-ov 1/cos(kot vpadanja) člen
     # (glej njen docstring o triangulacijski baseline), a main_trial.py ga
     # ne uporablja kot ločen numeričen vhod - trenutni model je empiričen
     # (1/cos faktor na osnovi kota), ne pravi trikotniško-geometrijski
