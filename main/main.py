@@ -161,6 +161,7 @@ def checkMovement(cap, frame, cycle_stop_event):
     Spremlja premik izdelka MED izvajanjem nanosa.
     Če kamera izgubi sliko ali zazna premik, sproži ABORT.
     """
+    return
     global movementError, ROI_SIZE, MOVEMENT_THRESHOLD, MOVEMENT_INTERVAL_SECONDS
     
     h, w, _ = frame.shape
@@ -216,9 +217,9 @@ def checkMovement(cap, frame, cycle_stop_event):
 def main():
     global movementError
     
-    camera_matrix, dist_coeffs, hand_eye_matrix_mm = load_calibration_data()
-    if hand_eye_matrix_mm is None:
-        return
+    #camera_matrix, dist_coeffs, hand_eye_matrix_mm = load_calibration_data()
+    #if hand_eye_matrix_mm is None:
+       # return
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -236,7 +237,7 @@ def main():
         print(f"[Sistem] Napaka pri vzpostavljanju povezave: {e}")
         server_socket.close()
         return
-
+    """
     print("[Kamera] Povezujem kamero...")
     cap = cv2.VideoCapture(1)
     if not cap.isOpened():
@@ -245,7 +246,7 @@ def main():
         server_socket.close()
         return
     print("[Kamera] Kamera uspešno povezana.")
-
+    """
     print("\nSistem pripravljen. Postavi izdelek v POI in pritisni ENTER.")
     
     try: 
@@ -255,29 +256,34 @@ def main():
                 
                 while keyboard.is_pressed('enter'):
                     time.sleep(0.05)
-                
+                """ 
                 ret, frame = get_fresh_frame(cap, flush_count=5)
                 if not ret:
                     print("[Kamera] Napaka pri zajemu referenčne slike za ta cikel!")
                     continue
-
+                """
                 product_type = 1 
                 with error_lock:
                     movementError = False
                 
                 cycle_stop_event = threading.Event()
                 
-                TRAN_MATRIX_MM = np.eye(4)  # Prazna matrika odmika (v mm)
+                TRAN_MATRIX_MM = np.array([
+                    [1.0,  0.0,  0.0, -500.0],   # X offset = -500 mm
+                    [0.0,  1.0,  0.0,    0.0],   # Y offset = 0 mm
+                    [0.0,  0.0,  1.0,  250.0],   # Z offset = +250 mm
+                    [0.0,  0.0,  0.0,    1.0]
+                ], dtype=np.float64) 
 
                 time.sleep(0.2) 
                 
                 mainThread = threading.Thread(target=moveRobot, args=(global_conn, TRAN_MATRIX_MM, product_type, cycle_stop_event))
-                movementThread = threading.Thread(target=checkMovement, args=(cap, frame, cycle_stop_event))
+                ##movementThread = threading.Thread(target=checkMovement, args=(cap, frame, cycle_stop_event))
                 
-                movementThread.start()
+                #movementThread.start()
                 mainThread.start()
                 
-                movementThread.join()
+                #movementThread.join()
                 mainThread.join()
                 
                 print("[Main] Cikel zaključen. Delavec lahko varno odstrani kos.")

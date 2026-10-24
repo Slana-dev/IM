@@ -50,10 +50,6 @@ def loci(naslov=""):
         print("=" * 60)
 
 def epson_to_matrix(x, y, z, u, v, w):
-    """
-    Pretvori Epsonove koordinate v 4x4 transformacijsko matriko.
-    Epson kote definira kot: W (okoli X), V (okoli Y), U (okoli Z) z 'xyz' konvencijo.
-    """
     rot = R.from_euler('xyz', [w, v, u], degrees=True).as_matrix()
     T = np.eye(4)
     T[0:3, 0:3] = rot
@@ -61,9 +57,6 @@ def epson_to_matrix(x, y, z, u, v, w):
     return T.tolist()
 
 def get_fresh_frame(cap, flush_count=5):
-    """
-    Izprazni notranji buffer OpenCV kamere, da dobimo 100 % svežo sliko.
-    """
     for _ in range(flush_count):
         cap.grab()
     return cap.read()
@@ -73,7 +66,7 @@ def get_fresh_frame(cap, flush_count=5):
 # ======================================================================
 def capture_live_data():
     print("[Kamera] Povezovanje s kamero...")
-    cap = cv2.VideoCapture(1)  # Indeks vaša kamere
+    cap = cv2.VideoCapture(1)
     
     if not cap.isOpened():
         print("[Kamera] NAPAKA: Ni mogoče odpreti kamere!")
@@ -85,7 +78,7 @@ def capture_live_data():
     server_socket.listen(1)
 
     print(f"\n[Sistem] Strežnik posluša na {TCP_IP}:{TCP_PORT}...")
-    print("[Sistem] V Epson RC+ zdaj poženi funkcijo HandEyeCalib...")
+    print("[Sistem] V Epson RC+ zdaj poženi funkcijo Main...")
 
     conn, addr = server_socket.accept()
     conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -99,16 +92,24 @@ def capture_live_data():
         while not done:
             chunk = conn.recv(1024).decode('utf-8')
             if not chunk:
+                print("[Sistem] Robot je zaprl povezavo.")
                 break
             
             tcp_buffer += chunk
 
-            while "\n" in tcp_buffer:
+            # Obdelava po vrsticah (\n ali \r)
+            while "\n" in tcp_buffer or "\r" in tcp_buffer:
+                # Zamenjamo \r\n z \n za enotno razdelitev
+                tcp_buffer = tcp_buffer.replace("\r\n", "\n").replace("\r", "\n")
+                if "\n" not in tcp_buffer:
+                    break
+
                 line, tcp_buffer = tcp_buffer.split("\n", 1)
-                line = line.strip()
+                line = line.strip().replace('"', '')  # Odstrani morebitne narekovaje iz starih zapisov
                 if not line:
                     continue
 
+                print(f"[DEBUG TCP Prejeto]: {line}")
                 parts = line.split()
                 cmd_type = parts[0]
 
@@ -125,7 +126,6 @@ def capture_live_data():
                     print(f"[Točka {pt_idx}] Robot stoji na poziciji:")
                     print(f"  X={x:.2f}, Y={y:.2f}, Z={z:.2f} | U={u:.2f}, V={v:.2f}, W={w:.2f}")
 
-                    # Zajem SVEŽE slike (s praznjenjem bufferja)
                     ret, frame = get_fresh_frame(cap, flush_count=5)
                     if ret:
                         img_path = os.path.abspath(os.path.join(SAVE_DIR, f"calib_frame_{pt_idx}.png"))
@@ -166,7 +166,7 @@ def capture_live_data():
     return True
 
 # ======================================================================
-# KORAK B: IZRAČUN HAND-EYE KALIBRACIJE (POPR. USKLADITEV INDEKSOV)
+# KORAK B: IZRAČUN HAND-EYE KALIBRACIJE
 # ======================================================================
 def process_hand_eye_calibration():
     try:
@@ -200,7 +200,6 @@ def process_hand_eye_calibration():
             R_gripper2base = robot_matrix[0:3, 0:3]
             t_gripper2base = robot_matrix[0:3, 3].reshape(3, 1) / 1000.0  # mm -> m
 
-            # Podatki so zapakirani v enoten slovar za preprečitev razsinhronizacije
             valid_views.append({
                 "img_path": img_path,
                 "corners": charuco_corners,
