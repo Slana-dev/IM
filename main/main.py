@@ -156,12 +156,13 @@ def moveRobot(conn, transform_matrix, product_type, cycle_stop_event):
 # ======================================================================
 # NADZOR PREMIKA IZDELKA (VARNOSTNI WATCHDOG)
 # ======================================================================
-def checkMovement(cap, frame, cycle_stop_event):
+import ctypes
+
+def monitorMovement(cap, frame, cycle_stop_event):
     """
     Spremlja premik izdelka MED izvajanjem nanosa.
     Če kamera izgubi sliko ali zazna premik, sproži ABORT.
     """
-    return
     global movementError, ROI_SIZE, MOVEMENT_THRESHOLD, MOVEMENT_INTERVAL_SECONDS
     
     h, w, _ = frame.shape
@@ -170,6 +171,19 @@ def checkMovement(cap, frame, cycle_stop_event):
     siva = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     ref_skrita = siva[y_start:y_start+ROI_SIZE, x_start:x_start+ROI_SIZE]
     
+    # --- POSODOBITEV: Ustvarjanje okna in avtomatski pomik v desni zgornji kot zaslona ---
+    ime_okna = "Spremljanje Premika"
+    cv2.namedWindow(ime_okna, cv2.WINDOW_AUTOSIZE)
+    
+    try:
+        # Preberemo širino vašega primarnega monitorja v pikah
+        sirina_zaslona = ctypes.windll.user32.GetSystemMetrics(0)
+        pozicija_x = sirina_zaslona - w  # Odmik za točno širino okna kamere
+        cv2.moveWindow(ime_okna, pozicija_x, 0)
+    except Exception:
+        # Rezervni fiksni odmik, če ctypes ne bi bil dostopen
+        cv2.moveWindow(ime_okna, 1280, 0)
+
     zadnji_cas = time.time()
     
     while not stop_event.is_set() and not cycle_stop_event.is_set():
@@ -198,7 +212,7 @@ def checkMovement(cap, frame, cycle_stop_event):
                 break
 
         cv2.rectangle(trenutni_frame, (x_start, y_start), (x_start+ROI_SIZE, y_start+ROI_SIZE), (255, 255, 255), 2)
-        cv2.imshow("Spremljanje Premika", trenutni_frame)
+        cv2.imshow(ime_okna, trenutni_frame)
         
         # Prekinitev operaterja prav tako sproži ABORT
         if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -210,7 +224,6 @@ def checkMovement(cap, frame, cycle_stop_event):
 
     cv2.destroyAllWindows()
     print("[Kamera] Nadzor premika za ta cikel zaključen.")
-
 # ======================================================================
 # GLAVNI PROGRAM
 # ======================================================================
@@ -237,16 +250,17 @@ def main():
         print(f"[Sistem] Napaka pri vzpostavljanju povezave: {e}")
         server_socket.close()
         return
-    """
+    
     print("[Kamera] Povezujem kamero...")
     cap = cv2.VideoCapture(1)
+    
     if not cap.isOpened():
         print("[Kamera] Napaka: Ni mogoče odpreti kamere.")
         global_conn.close()
         server_socket.close()
         return
     print("[Kamera] Kamera uspešno povezana.")
-    """
+    
     print("\nSistem pripravljen. Postavi izdelek v POI in pritisni ENTER.")
     
     try: 
@@ -256,12 +270,12 @@ def main():
                 
                 while keyboard.is_pressed('enter'):
                     time.sleep(0.05)
-                """ 
+                
                 ret, frame = get_fresh_frame(cap, flush_count=5)
                 if not ret:
                     print("[Kamera] Napaka pri zajemu referenčne slike za ta cikel!")
                     continue
-                """
+                
                 product_type = 1 
                 with error_lock:
                     movementError = False
@@ -278,12 +292,12 @@ def main():
                 time.sleep(0.2) 
                 
                 mainThread = threading.Thread(target=moveRobot, args=(global_conn, TRAN_MATRIX_MM, product_type, cycle_stop_event))
-                ##movementThread = threading.Thread(target=checkMovement, args=(cap, frame, cycle_stop_event))
+                movementThread = threading.Thread(target=monitorMovement, args=(cap, frame, cycle_stop_event))
                 
-                #movementThread.start()
+                movementThread.start()
                 mainThread.start()
                 
-                #movementThread.join()
+                movementThread.join()
                 mainThread.join()
                 
                 print("[Main] Cikel zaključen. Delavec lahko varno odstrani kos.")
